@@ -1,0 +1,6 @@
+# Install before opening Jupyter so Run All never upgrades a running kernel.
+-r requirements-current.lock.txt
+ipykernel==6.30.1
+jupyterlab==4.4.7
+nbclient==0.10.2
+nbformat==5.10.4

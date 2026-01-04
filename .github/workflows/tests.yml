@@ -40,6 +40,12 @@ jobs:
         run: python -m pip check
       - name: Unit tests and real process-boundary tests
         run: python -m unittest discover -s tests -v
+      - name: Install notebook tools for the current Linux stack
+        if: matrix.name == 'Linux-Py313-BART013'
+        run: python -m pip install -r requirements-notebook.txt
+      - name: Execute every notebook cell in a clean kernel
+        if: matrix.name == 'Linux-Py313-BART013'
+        run: python run_notebook.py
       - name: Preserve generated evidence, including failed-run logs
         if: always()
         uses: actions/upload-artifact@v4
