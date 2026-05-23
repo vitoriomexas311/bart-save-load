@@ -1,252 +1,197 @@
-# PyMC BART persistence: save, restart, predict
+# BART save and load
 
-[![Persistence tests](https://github.com/vitoriomexas311/pymc-bart-persistence-example/actions/workflows/tests.yml/badge.svg)](https://github.com/vitoriomexas311/pymc-bart-persistence-example/actions/workflows/tests.yml)
+[![CI](https://github.com/vitoriomexas311/bart-save-load/actions/workflows/tests.yml/badge.svg)](https://github.com/vitoriomexas311/bart-save-load/actions/workflows/tests.yml)
 
-**A small, extensively commented example showing how to save the learned BART
-trees, exit Python, and predict in a fresh process without retraining.**
+Save a trained **scalar-output PyMC BART** variable to one file, then load a reusable
+predictor in another Python process. No retraining, original training data, trace,
+or reconstructed PyMC model is needed for prediction.
 
-Saving a numerical posterior to `trace.nc` is insufficient for BART. This example
-saves a separate pickle containing all retained tree state, then demonstrates both
-direct tree predictions and `pm.sample_posterior_predictive` after restoration.
+The runtime is exactly two files: `bart_persistence/save.py` and
+`bart_persistence/load.py`. The directory is a Python namespace package, so it
+needs no `__init__.py`. Tests, packaging metadata and the notebook are development
+material, not runtime modules.
 
-There are two explicit examples because BART changed its internal storage format:
+## Install
 
-| Example | Pinned stack | What the tree archive contains |
-|---|---|---|
-| [demo.py](demo.py) | BART 0.11.0 / PyMC 5.25.1 | Every retained forest |
-| [demo_current.py](demo_current.py) | BART 0.13.1 / PyMC 6.3.2 | Per-chain histories plus `n_outputs` |
-
-## Start with the notebook
-
-**[Open the end-to-end walkthrough](bart_persistence_walkthrough.ipynb)** for the
-easiest way to follow the experiment. Each step has a short Markdown heading.
-The notebook shows the model, trains it, saves the trace and trees, starts a
-separate prediction process, and plots the before/after results together.
-
-From the repository root, create a dedicated notebook environment:
+Choose the extra matching your training environment. Do not install both.
+From [this repository](https://github.com/vitoriomexas311/bart-save-load):
 
 ```sh
-python3.13 -m venv .venv-notebook
-.venv-notebook/bin/python -m pip install -r requirements-notebook.txt
-.venv-notebook/bin/python -m jupyterlab bart_persistence_walkthrough.ipynb
+python -m pip install '.[current]'   # BART 0.13.1 / PyMC 6.3.2 (Python >=3.12)
+# OR
+python -m pip install '.[legacy]'    # BART 0.11.0 / PyMC 5.25.1 (Python >=3.11)
 ```
 
-Select the Python kernel from that environment and **Run All Cells**. The notebook
-needs no manual restart midway through: it writes and launches a small reload
-script using the same Python executable. The child cannot access the kernel's
-trained model and explicitly forbids retraining. All generated files stay under
-`artifacts/notebook-demo/`; rerunning the notebook replaces those example files.
-
-On Windows, use `py -3.13 -m venv .venv-notebook` and replace
-`.venv-notebook/bin/python` with `.venv-notebook\Scripts\python.exe`.
-
-To execute the same notebook automatically in a clean kernel:
+In an environment that already has either supported stack, `pip install .` adds
+only this package and NumPy. It deliberately does not upgrade your work's PyMC.
+Installing the base package into an empty environment is insufficient: choose a
+stack extra. Releases other than these two exact BART/PyMC pairs are rejected.
+The package is not published to PyPI. Build an installable wheel with:
 
 ```sh
-.venv-notebook/bin/python run_notebook.py
+python -m pip install build
+python -m build
+# On your serving machine, using the wheel you built:
+python -m pip install 'bart_persistence-0.1.0-py3-none-any.whl[current]'
 ```
 
-The runner verifies the report and saves an executed copy under `.test-artifacts/`.
-CI also executes the notebook on the current Linux stack. The checked-in notebook
-includes example outputs, which are cleared and recomputed by the runner.
+Use a dedicated environment. After training, retain `python -m pip freeze >
+training-requirements.txt` alongside your deployment configuration and install that
+same lock in serving. Exact versions of BART, PyMC, PyTensor and NumPy (plus bartrs
+for the current stack) must match the artifact. Python and OS are not checked;
+keep them the same too for deployments. This is not an upgrade/migration format.
 
-## Try the current example
-
-```sh
-git clone https://github.com/vitoriomexas311/pymc-bart-persistence-example.git
-cd pymc-bart-persistence-example
-python3.13 -m venv .venv-current
-.venv-current/bin/python -m pip install -r requirements-current.lock.txt
-
-# This process trains, writes trace.nc and the tree archives, then exits.
-.venv-current/bin/python demo_current.py train artifacts/current
-
-# This is a NEW Python process. It is forbidden from calling pm.sample().
-.venv-current/bin/python demo_current.py reload artifacts/current
-
-# Run both unit tests and another real training/reload experiment.
-.venv-current/bin/python -m unittest discover -s tests -v
-```
-
-On Windows, create the environment with `py -3.13 -m venv .venv-current` and
-replace `.venv-current/bin/python` with `.venv-current\Scripts\python.exe`.
-The two scripts use a main guard so multiprocessing can safely import them.
-They also select a version-specific `.pytensor-cache/` directory before importing
-PyMC. This avoids compiled-extension collisions when both stacks run concurrently;
-virtual environments alone did not isolate that cache in our test.
-
-On a successful reload, the JSON output includes `"passed": true`, 40 detailed
-comparisons in the result file, and the measured `max_absolute_difference`.
-Our recorded local runs returned **0.0**. A fresh training run may learn different
-trees; the invariant is that its own before/after predictions agree.
-
-## Read the code as a walkthrough
-
-1. **Build a model:** `model_for` in [demo.py](demo.py) uses two synthetic features,
-   a sum of 20 trees, and a Normal likelihood with fixed observation noise.
-2. **Train and save:** the `train` phase saves numerical posterior data to NetCDF
-   and materializes `all_trees` as a regular list before pickling it.
-3. **Record ground truth for the experiment:** predict while the original trained
-   model is alive, including predictions from every retained ensemble.
-4. **Restart:** each reload is a separate Python invocation, not another function
-   call that can still see the training model's memory.
-5. **Demonstrate the failure:** load only NetCDF into a rebuilt model and try a new
-   row count. This negative control must fail or disagree with the trained model.
-6. **Restore the trees:** populate the rebuilt model's class-backed collection;
-   the current implementation also restores the output dimension and clears its cache.
-7. **Prove equivalence:** compare complete arrays of latent means and noisy outcomes,
-   along with direct tree predictions. A version, shape, or value mismatch fails the run.
-
-Every function is documented, with inline comments at the serialization and
-prediction steps. [tests/README.md](tests/README.md) explains the automated checks;
-[reports/README.md](reports/README.md) explains the committed verification evidence.
-
-This repository contains executable experiments, exact dependency locks,
-and machine-readable result summaries. Trained binary artifacts are generated locally
-and excluded from Git. Training exits before each reload starts. The reload process
-reconstructs the PyMC model, restores the tree state, loads NetCDF, and predicts without training.
-
-## Verified PyMC 5 results
-
-Stack: pymc-bart 0.11.0, PyMC 5.25.1, PyTensor 2.31.7, NumPy 2.2.6, ArviZ 0.22.0.
-Host: macOS 26.3, Apple Silicon. Python environments have separate dependency installations;
-the exact full sets are in `requirements-py311.lock.txt` and `requirements-py313.lock.txt`.
-
-| Training | Loading in a new process | Result |
-|---|---|---|
-| Python 3.13.2, one chain | Python 3.13.2 | PASS, max difference 0 |
-| Python 3.13.2, one chain | Python 3.11.4 | PASS, max difference 0 |
-| Python 3.11.4, two parallel chains | Python 3.11.4 | PASS, max difference 0 |
-| Python 3.11.4, two parallel chains | Python 3.13.2 | PASS, max difference 0 |
-
-Both standard `pickle` and `cloudpickle` passed. Each reload performs 40 numerical comparisons:
-two serializers × five input cases × four outputs. The input cases are new batches of 1, 17,
-120, and 175 rows, plus the original 120 training rows. Four outputs are random posterior tree
-draws, predictions from EVERY retained ensemble, `mu`, and noisy `y` from PyMC's standard
-`sample_posterior_predictive`. Random seeds are fixed for before/after comparisons.
-
-The trace-only negative control fails on a 17-row new batch with a 17-versus-120 shape mismatch.
-Reload replaces `pm.sample` with a function that raises immediately, preventing retraining.
-Results record separate training/loading process IDs.
-
-The model learns `sin(3*x0) + 0.5*x1` with Normal observation noise of fixed sigma 0.15.
-There are 20 trees per ensemble and 80 retained draws per chain after 100 tuning steps.
-All 80 single-chain or 160 two-chain posterior ensembles are preserved, not only a final forest.
-Warmup and rejected proposals are intentionally not archived. Holdout mean-function RMSE was
-0.137 and 0.126 respectively, versus 0.778 for the constant training-mean baseline.
-
-## Reproduce
-
-For a single available Python environment:
-
-```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python demo.py train artifacts/example --chains 2 --cores 2
-.venv/bin/python demo.py reload artifacts/example --label fresh
-```
-
-These are deliberately separate Python invocations. To repeat the two-environment matrix:
-
-```sh
-python3.13 -m venv .venv
-python3.11 -m venv .venv-py311
-.venv/bin/pip install -r requirements-py313.lock.txt
-.venv-py311/bin/pip install -r requirements-py311.lock.txt
-python3 run_matrix.py
-```
-
-Paths to alternate Python installations can be supplied with `--python-a` and `--python-b`.
-`--skip-training` reuses existing artifacts. A generated `matrix.json` records process exit codes;
-`artifacts/*/result-*.json` contains individual comparisons. Logs are under `logs/`.
-
-## Verified current-release results
-
-Python 3.13.2 / pymc-bart 0.13.1 / PyMC 6.3.2 / PyTensor 3.3.1 / bartrs 0.4.0 /
-NumPy 2.5.3 / ArviZ 1.3.0: two parallel training chains, followed by a separate reload
-process, PASS. Both serializers and all 40 comparisons passed with maximum absolute
-difference **0.0**. NetCDF alone failed with the same 17-versus-120 shape error.
-Together with the four PyMC 5 runs, this is **200 passing numerical comparisons**.
-
-This release stores two chain histories that reconstruct all 160 retained ensembles.
-`demo_current.py` saves the plain history list AND `n_outputs`. After model reconstruction:
+## Training script: save
 
 ```python
-op = model['mu'].owner.op
-op.all_trees[:] = archive['trees']
-type(op).n_outputs = archive['n_outputs']
-# Clear the private sampler cache if replacing an already-used archive.
-from pymc_bart.utils import _posterior_sampler_cache
-_posterior_sampler_cache.clear()
-with model:
-    pm.set_data({'X': X_new})
-    predictions = pm.sample_posterior_predictive(
-        trace, var_names=['mu', 'y'], sample_vars=['mu', 'y'],
-        predictions=True, backend='c')
+import numpy as np
+import pymc as pm
+import pymc_bart as pmb
+from bart_persistence.save import save_bart
+
+# Replace this synthetic data with your prepared numeric feature matrix and target.
+rng = np.random.default_rng(42)
+X = rng.normal(size=(100, 2))
+y = np.sin(X[:, 0]) + 0.5 * X[:, 1] + rng.normal(0, 0.1, 100)
+
+if __name__ == "__main__":  # Required for portable multiprocessing in scripts.
+    with pm.Model() as model:
+        x = pm.Data("X", X)
+        mu = pmb.BART("mu", x, y, m=20)
+        pm.Normal("observed", mu, 0.1, observed=y)
+        trace = pm.sample(draws=100, tune=100, chains=2, cores=2, random_seed=42)
+    save_bart(model["mu"], "model.bart")
 ```
 
-Two additional compatibility details were discovered in actual runs:
+Those short chains illustrate the API; choose sampling settings and check
+convergence appropriate to your actual model. For BART 0.13.1 use parallel chains (`cores=chains`) or a single chain: in local
+testing sequential two-chain sampling retained only the last chain’s tree history
+in the upstream variable, despite two chains in the trace. The saver can only
+persist histories that BART retains.
 
-1. PyMC 6 needs explicit `sample_vars` to regenerate BART values on changed covariates.
-   `var_names` alone left `mu` frozen and generated an implicit-freeze warning.
-2. Even with that fixed, the default Numba backend failed during this batch prediction
-   test with `Vectorized input 0 has an incompatible shape in axis 0`. Using the public
-   `backend='c'` option passed all tested batch sizes. This is a prediction/backend issue
-   encountered before serialization, not evidence of corrupt saved trees.
+Save only after sampling finishes,
+while the trained BART variable still exists. Pass the BART random variable itself,
+not `trace`, the model, or a deterministic inverse-link expression.
 
-NetCDF is loaded with `xarray.open_datatree` for PyMC 6's DataTree output. Reproduce:
+`save_bart(rv, path)` returns `None`. The parent directory must exist. Existing
+files raise `FileExistsError` instead of being overwritten; use a new versioned
+filename for each fit. Serialization completes in memory before opening the file.
+Writing is not transactional: an interrupted/disk-full write can leave a partial
+new file. Delete that incomplete file before retrying. Saving briefly needs memory
+for both the tree state and serialized bytes.
 
-```sh
-python3.13 -m venv .venv-current
-.venv-current/bin/pip install -r requirements-current.lock.txt
-.venv-current/bin/python demo_current.py train artifacts/current
-.venv-current/bin/python demo_current.py reload artifacts/current
-```
-
-The two version families were trained separately. Cross-BART-version migration was not
-attempted or claimed; the cross-Python tests used BART 0.11.0 on both sides.
-
-## Minimal integration for the tested PyMC 5 stack
+## Separate prediction script: load
 
 ```python
-# In the training process, after pm.sample():
-import pickle
-trace.to_netcdf('trace.nc')
-with open('trees.pkl', 'wb') as f:
-    pickle.dump(list(model['mu'].owner.op.all_trees), f, protocol=5)
+import numpy as np
+from bart_persistence.load import load_bart
 
-# In a new process, recreate the same model specification first:
-import arviz as az
-trace = az.from_netcdf('trace.nc')
-with open('trees.pkl', 'rb') as f:
-    trees = pickle.load(f)
-model['mu'].owner.op.all_trees[:] = trees
-with model:
-    pm.set_data({'X': X_new})
-    predictions = pm.sample_posterior_predictive(
-        trace, var_names=['mu', 'y'], predictions=True)
+predictor = load_bart("model.bart")  # Load once at application startup.
+X_new = np.array([[0.2, 0.8], [-0.5, 0.1]])
+samples = predictor.predict(X_new, draws=1000, seed=42)
+mean = samples.mean(axis=0)
+interval = np.quantile(samples, [0.025, 0.975], axis=0)
 ```
 
-Mutating the existing tree list matters: the prediction implementation accesses class-backed
-state, so setting an instance-only attribute can fail to restore the trees used by predictions.
-The direct `_sample_posterior` helper is exercised too, for serving BART means without a rebuilt
-PyMC model. It is private and version-specific.
+Pass `predictor` to functions or keep it in your service object. Different loaded
+predictors have independent tree state. Loading reconstructs the current version's
+Rust prediction samplers once, rather than doing so for every request. PyMC and
+BART remain installed dependencies and are imported, but no model is compiled or
+sampled. This is not a dependency-free tree engine.
 
-## Scope and production handoff
+`predict(X, *, draws=500, seed=None)` returns a NumPy array with shape
+**(requested draws, input rows)**. Draws are sampled **with replacement** from all
+retained posterior ensembles pooled across chains. `predictor.n_draws` reports the
+number retained; `predictor.n_features` reports the expected column count. A fixed
+integer seed repeats results for the same artifact and inputs. `None` uses fresh
+randomness. Requesting more draws resamples the saved posterior; it does not fit
+more trees. Batch large datasets to control output memory (approximately
+`8 * draws * rows` bytes, plus prediction working memory).
 
-- These are persistence tests, not convergence certification; chains are deliberately short.
-- Exact comparisons validate reload equivalence for this model. The likelihood uses fixed noise;
-  this does not validate tree-draw alignment with other inferred parameters in complex models.
-- Preserve feature order, transforms, model specification, output dimension and dependency locks.
-  The synthetic inputs/reference files are test fixtures, not a requirement to serve tree-only means.
-- Only load trusted pickle files. Pin the training/serving stack. Cross-Python success here is not
-  a guarantee for arbitrary Python, NumPy, or BART upgrades.
-- The original recorded experiment ran on macOS. The GitHub Actions workflow tests Linux,
-  macOS and Windows; consult its actual run status for those results, rather than treating
-  a configured matrix as a pass. Containers, categorical/multi-output BART, and linear leaves
-  are outside this example. Docker was unavailable during the original local experiment.
-- Current BART has changed its storage schema. Do not load 0.11 artifacts in newer BART versions
-  by disabling the version check. `demo_current.py` exercises the 0.13.1 schema separately.
+X must be a nonempty finite numeric 2D matrix with the training column count.
+**Preserve column order, encodings, units, imputation and scaling yourself.** The
+artifact stores the column count, not names or preprocessing. DataFrames convert
+to arrays in their existing order; columns are not matched by name. Invalid shape,
+nonfinite input or a nonpositive/noninteger draw count raises `ValueError`.
 
-Background: [upstream issue #123](https://github.com/pymc-devs/pymc-bart/issues/123),
-[original discussion](https://discourse.pymc.io/t/save-and-load-a-bart-model/13135).
+## What is saved, and why
+
+A numerical trace contains BART's evaluated values at the training rows, but not
+the reusable tree state needed to evaluate new rows. This package saves that state
+separately. The upstream [persistence discussion](https://github.com/pymc-devs/pymc-bart/issues/123)
+and [storage changes](https://github.com/pymc-devs/pymc-bart/blob/main/CHANGELOG.md)
+explain the background.
+
+One `.bart` file contains:
+
+1. A UTF-8 JSON line with format ID `bart-persistence/1`, exact dependency versions
+   and feature count.
+2. A protocol-5 pickle payload with the complete retained tree collection and tree
+   count `m`. BART 0.11 stores posterior forests. BART 0.13.1 stores compressed
+   per-chain histories and also needs `n_outputs` to reconstruct its samplers.
+
+The saver turns the process-backed tree collection into a normal list; it does
+not pickle the multiprocessing manager, PyMC model, trace or training matrix.
+The loader checks the header first, then deserializes and constructs an independent
+`BARTPredictor`. It does not modify global BART state or rely on an operator-ID cache.
+It uses version-specific private upstream prediction APIs, which is why compatibility
+is deliberately narrow. Old artifacts produced by the previous demo scripts are
+not this format; save again from a live fitted variable using this API.
+
+**Only load files from trusted sources. Pickle can execute arbitrary code.** A
+version check is a compatibility guard, not authentication or safe deserialization.
+Corrupt/truncated files raise their native JSON, pickle, key or I/O exceptions.
+
+## Scope
+
+Predictions are draws of the **latent BART function**, on the scale on which BART
+was trained. For a logistic model apply the sigmoid to *each draw*, then summarize
+those probabilities. For a log-link model exponentiate each draw. This package
+does not add likelihood noise, infer other parameters or preserve joint draw
+alignment with a separate trace. Consequently these intervals describe the latent
+function, not noisy future observations. Keep your trace separately for diagnostics
+or downstream analysis if needed; it is not an argument to this API.
+
+The supported contract is one scalar-output BART variable with a numeric feature
+matrix. Multiple-output BART is explicitly rejected. Categorical split rules,
+linear leaves, missing-value prediction, continued training, concurrent use of a
+single predictor, and cross-version migration are outside the tested contract.
+
+## Notebook and tests
+
+`bart_persistence_walkthrough.ipynb` runs the same save/load workflow and verifies
+predictions in a child interpreter. Explanations live in this Markdown reference;
+notebook Markdown is limited to short step labels. Select the `bart-persistence`
+kernel when opening it interactively.
+
+```sh
+python -m pip install -e '.[current,test,notebook]'
+python -m ipykernel install --sys-prefix --name bart-persistence
+python -m jupyterlab bart_persistence_walkthrough.ipynb
+# Or execute all cells automatically; keep generated output out of source control:
+python -m nbconvert --to notebook --execute bart_persistence_walkthrough.ipynb --ExecutePreprocessor.kernel_name=bart-persistence --output-dir artifacts
+```
+
+Run coverage across **both supported stacks**, since each has a different loader
+branch. In two separate environments, installed with `.[current,test]` and
+`.[legacy,test]`, run from the repository root:
+
+```sh
+COVERAGE_FILE=.coverage.current .venv-current/bin/python -m pytest --cov-fail-under=0
+COVERAGE_FILE=.coverage.legacy .venv-legacy/bin/python -m pytest --cov-fail-under=0
+.venv-current/bin/python -m coverage combine
+.venv-current/bin/python -m coverage report --fail-under=100
+```
+
+100% means **statement and branch coverage of the two runtime modules**, combined
+across supported versions. It does not mean every possible BART model or third-party
+code path is tested. Tests include actual two-chain fits, complete array equality
+against the live upstream sampler over several batch sizes, fresh-process loading
+with training/model creation forbidden, independent predictors, and error cases.
+CI tests Python 3.11 / legacy BART and Python 3.13 / current BART on Linux,
+enforces the combined 100% threshold, builds the wheel and source distribution,
+and executes the notebook outside the checkout against the installed wheel.
+Each run publishes the wheel and executed notebook as downloadable artifacts.
+A single-stack `python -m pytest` reports coverage without failing on the other
+stack’s unexecuted branches; the separate combined CI job owns that gate. Example notebooks
+and test code are not counted as production coverage.
