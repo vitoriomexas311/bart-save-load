@@ -18,3 +18,12 @@ notebook = ["jupyterlab", "nbconvert", "ipykernel"]
 
 [tool.setuptools.packages.find]
 include = ["bart_persistence*"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=bart_persistence --cov-branch --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+relative_files = true
+source = ["bart_persistence"]
+branch = true
