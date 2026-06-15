@@ -164,3 +164,13 @@ def test_independent_models(trained, tmp_path):
     b = load_bart(tmp_path/'a')
     assert a._trees is not b._trees
     np.testing.assert_array_equal(a.predict(trained[1], seed=1), reference)
+
+
+@pytest.mark.parametrize("operation", ["fsync", "link"])
+def test_save_failure_does_not_publish_partial_artifact(trained, tmp_path, monkeypatch, operation):
+    def fail(*args):
+        raise OSError("simulated storage failure")
+    monkeypatch.setattr(f"bart_persistence.save.os.{operation}", fail)
+    with pytest.raises(OSError, match="storage failure"):
+        save_bart(trained[0], tmp_path / "model.bart")
+    assert list(tmp_path.iterdir()) == []

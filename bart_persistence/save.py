@@ -2,8 +2,10 @@
 
 import importlib.metadata as md
 import json
+import os
 from pathlib import Path
 import pickle
+import tempfile
 
 
 SUPPORTED = {"0.11.0": "5.25.1", "0.13.1": "6.3.2"}
@@ -45,5 +47,13 @@ def save_bart(rv, path):
               "n_features": int(op.X.eval().shape[1])}
     # Serialize before opening so serialization errors cannot leave a partial file.
     payload = pickle.dumps(state, protocol=5)
-    with Path(path).open("xb") as stream:
-        stream.write(json.dumps(header).encode() + b"\n" + payload)
+    path = Path(path)
+    # A same-filesystem hard link publishes the complete file without replacing
+    # an existing destination. Failures leave the destination untouched.
+    with tempfile.TemporaryDirectory(prefix=".bart-", dir=path.parent) as directory:
+        staging = Path(directory) / "artifact"
+        with staging.open("wb") as stream:
+            stream.write(json.dumps(header).encode() + b"\n" + payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(staging, path)
