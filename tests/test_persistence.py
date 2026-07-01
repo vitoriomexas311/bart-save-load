@@ -123,7 +123,7 @@ def test_bad_artifact_before_unpickle(tmp_path, monkeypatch):
     path = tmp_path/'bad'
     def forbidden(*args):
         raise AssertionError('Must check header before unpickling')
-    monkeypatch.setattr('bart_persistence.load.pickle.load', forbidden)
+    monkeypatch.setattr('bart_persistence.load.pickle.loads', forbidden)
     for header, error in [({'format': 'other'}, 'format'),
                           ({'format': 'bart-persistence/1', 'versions': {}}, 'versions differ')]:
         path.write_bytes(json.dumps(header).encode() + b'\ninvalid pickle')
@@ -176,3 +176,28 @@ def test_save_failure_does_not_publish_partial_artifact(trained, tmp_path, monke
     with pytest.raises(OSError, match="storage failure"):
         save_bart(trained[0], tmp_path / "model.bart")
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("damage", ["truncate", "flip", "append"])
+def test_corrupted_payload_is_rejected_before_unpickling(trained, tmp_path, monkeypatch, damage):
+    path = tmp_path / "model.bart"
+    save_bart(trained[0], path)
+    header, payload = path.read_bytes().split(b"\n", 1)
+    altered = {"truncate": payload[:-1], "flip": bytes([payload[0] ^ 1]) + payload[1:],
+               "append": payload + b"extra"}[damage]
+    path.write_bytes(header + b"\n" + altered)
+    def forbidden(*args):
+        raise AssertionError("Corrupt payload must not be unpickled")
+    monkeypatch.setattr("bart_persistence.load.pickle.loads", forbidden)
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        load_bart(path)
+
+
+def test_original_format_without_checksum_remains_readable(trained, tmp_path):
+    path = tmp_path / "model.bart"
+    save_bart(trained[0], path)
+    header, payload = path.read_bytes().split(b"\n", 1)
+    header = json.loads(header)
+    del header["sha256"]
+    path.write_bytes(json.dumps(header).encode() + b"\n" + payload)
+    assert load_bart(path).n_draws == 12
