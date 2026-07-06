@@ -23,16 +23,17 @@ def _versions():
     return versions
 
 
-def save_bart(rv, path):
+def save_bart(rv, path, *, expected_draws=None):
     """Save a trained scalar BART random variable; refuse to overwrite a file.
 
     Pass model["mu"], not the trace or a transformed deterministic variable.
     The parent directory must exist. Only load artifacts you trust.
+    Set expected_draws to trace chains * draws to detect missing tree histories.
     """
     from pymc_bart.bart import BARTRV
 
     versions = _versions()
-    if rv.owner is None or not isinstance(rv.owner.op, BARTRV):
+    if getattr(rv, "owner", None) is None or not isinstance(rv.owner.op, BARTRV):
         raise TypeError("Expected a BART random variable, e.g. model['mu']")
     op = rv.owner.op
     if rv.ndim != 1:
@@ -44,6 +45,15 @@ def save_bart(rv, path):
     state = {"trees": trees, "m": op.m}
     if versions["pymc-bart"] == "0.13.1":
         state["n_outputs"] = op.n_outputs
+    if expected_draws is not None:
+        from .load import BARTPredictor
+
+        if isinstance(expected_draws, bool) or not isinstance(expected_draws, int) or expected_draws < 1:
+            raise ValueError("expected_draws must be a positive integer")
+        retained = BARTPredictor(state, 0, versions["pymc-bart"]).n_draws
+        if retained != expected_draws:
+            raise ValueError(f"BART retained {retained} draws; expected {expected_draws}. "
+                             "Use parallel chains or a single chain before saving.")
     header = {"format": "bart-persistence/1", "versions": versions,
               "n_features": int(op.X.eval().shape[1])}
     # Serialize before opening so serialization errors cannot leave a partial file.
