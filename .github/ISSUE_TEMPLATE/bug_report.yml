@@ -1,0 +1,26 @@
+name: Persistence bug
+description: Report a reproducible save, load or prediction problem.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the package commit, Python, OS, pymc-bart, pymc, pytensor, numpy and bartrs versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal synthetic reproducer
+      description: Include chain/core counts and commands. Do not upload confidential data or pickle files.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected behavior and actual result
+      description: Include the full traceback with confidential paths or values removed.
+    validations:
+      required: true
