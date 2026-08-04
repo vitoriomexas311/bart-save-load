@@ -18,7 +18,7 @@ from bart_persistence.load import load_bart, BARTPredictor
 def trained():
     X = np.random.default_rng(3).normal(size=(24, 2))
     y = np.sin(X[:, 0]) + X[:, 1]
-    with pm.Model() as model:
+    with pm.Model():
         x = pm.Data('X', X)
         mu = pmb.BART('mu', x, y, m=4)
         pm.Normal('y', mu, 0.2, observed=y)
