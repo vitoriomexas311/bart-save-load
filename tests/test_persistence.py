@@ -10,6 +10,7 @@ import pymc_bart as pmb
 import pytest
 
 from bart_persistence.save import save_bart, _versions
+from bart_persistence.load import BARTPredictor
 
 
 @pytest.fixture(scope='session')
@@ -68,3 +69,25 @@ def test_untrained_and_wrong_variable(tmp_path):
     with pytest.raises(ValueError, match='No posterior trees'):
         save_bart(rv, tmp_path/'no')
     assert not (tmp_path/'no').exists()
+
+
+@pytest.fixture
+def saved_state(trained, tmp_path):
+    path = tmp_path / 'state.bart'
+    save_bart(trained[0], path)
+    return pickle.loads(path.read_bytes().split(b'\n', 1)[1])
+
+
+@pytest.fixture
+def predictor(saved_state):
+    return BARTPredictor(saved_state, 2, md.version('pymc-bart'))
+
+
+def test_construct_predictor(predictor):
+    assert predictor.n_features == 2
+    assert predictor.n_draws == 12
+
+
+def test_empty_legacy_artifact():
+    with pytest.raises(ValueError, match='no posterior draws'):
+        BARTPredictor({'trees': []}, 2, '0.11.0')
