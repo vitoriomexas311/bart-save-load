@@ -16,6 +16,40 @@ There are two explicit examples because BART changed its internal storage format
 | [demo.py](demo.py) | BART 0.11.0 / PyMC 5.25.1 | Every retained forest |
 | [demo_current.py](demo_current.py) | BART 0.13.1 / PyMC 6.3.2 | Per-chain histories plus `n_outputs` |
 
+## Start with the notebook
+
+**[Open the end-to-end walkthrough](bart_persistence_walkthrough.ipynb)** for the
+easiest way to follow the experiment. Each step has a short Markdown heading.
+The notebook shows the model, trains it, saves the trace and trees, starts a
+separate prediction process, and plots the before/after results together.
+
+From the repository root, create a dedicated notebook environment:
+
+```sh
+python3.13 -m venv .venv-notebook
+.venv-notebook/bin/python -m pip install -r requirements-notebook.txt
+.venv-notebook/bin/python -m jupyterlab bart_persistence_walkthrough.ipynb
+```
+
+Select the Python kernel from that environment and **Run All Cells**. The notebook
+needs no manual restart midway through: it writes and launches a small reload
+script using the same Python executable. The child cannot access the kernel's
+trained model and explicitly forbids retraining. All generated files stay under
+`artifacts/notebook-demo/`; rerunning the notebook replaces those example files.
+
+On Windows, use `py -3.13 -m venv .venv-notebook` and replace
+`.venv-notebook/bin/python` with `.venv-notebook\Scripts\python.exe`.
+
+To execute the same notebook automatically in a clean kernel:
+
+```sh
+.venv-notebook/bin/python run_notebook.py
+```
+
+The runner verifies the report and saves an executed copy under `.test-artifacts/`.
+CI also executes the notebook on the current Linux stack. The checked-in notebook
+includes example outputs, which are cleared and recomputed by the runner.
+
 ## Try the current example
 
 ```sh

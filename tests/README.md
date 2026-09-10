@@ -61,3 +61,12 @@ saved files across interpreters while keeping the core package versions fixed.
 The GitHub Actions matrix runs full fresh-process tests independently on Linux,
 macOS, and Windows with the exact selected dependency lock. It does not claim
 cross-OS transfer of a single artifact or cross-BART-version migration.
+
+## Notebook execution
+
+Install `requirements-notebook.txt` in a Python 3.13 environment, then run
+`python run_notebook.py`. The runner clears saved outputs, starts a clean kernel,
+and executes the notebook in order. The notebook itself starts another Python
+process for reloading and prediction. The final check requires all 160 retained
+ensembles, matching latent/noisy predictions, and separate training/loading PIDs.
+The current Linux CI job runs this check and uploads the executed notebook.
