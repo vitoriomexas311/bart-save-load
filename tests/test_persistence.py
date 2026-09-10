@@ -10,7 +10,7 @@ import pymc_bart as pmb
 import pytest
 
 from bart_persistence.save import save_bart, _versions
-from bart_persistence.load import BARTPredictor
+from bart_persistence.load import load_bart, BARTPredictor
 
 
 @pytest.fixture(scope='session')
@@ -115,3 +115,52 @@ def test_invalid_prediction_inputs(predictor):
     for draws in [0, -1, 1.5, True]:
         with pytest.raises(ValueError, match='positive integer'):
             p.predict([[1, 2]], draws=draws)
+
+
+def test_bad_artifact_before_unpickle(tmp_path, monkeypatch):
+    path = tmp_path/'bad'
+    def forbidden(*args):
+        raise AssertionError('Must check header before unpickling')
+    monkeypatch.setattr('bart_persistence.load.pickle.load', forbidden)
+    for header, error in [({'format': 'other'}, 'format'),
+                          ({'format': 'bart-persistence/1', 'versions': {}}, 'versions differ')]:
+        path.write_bytes(json.dumps(header).encode() + b'\ninvalid pickle')
+        with pytest.raises(ValueError, match=error):
+            load_bart(path)
+
+
+def test_real_roundtrip(trained, tmp_path):
+    rv, X = trained
+    path = tmp_path / 'model.bart'
+    save_bart(rv, path)
+    predictor = load_bart(path)
+    assert predictor.n_draws == 12
+    np.save(tmp_path / 'X.npy', X)
+    np.save(tmp_path / 'expected.npy', predictor.predict(X, draws=100, seed=10))
+    # Run outside the repo: proves the installed package works without source cwd.
+    code = '''
+import numpy as np
+import pymc as pm
+from bart_persistence.load import load_bart
+
+def forbidden(*args, **kwargs):
+    raise AssertionError("Loading must not train or reconstruct a model")
+pm.sample = forbidden
+pm.Model = forbidden
+p = load_bart('model.bart')
+np.testing.assert_array_equal(p.predict(np.load('X.npy'), draws=100, seed=10), np.load('expected.npy'))
+'''
+    subprocess.run([sys.executable, '-c', code], cwd=tmp_path, check=True, timeout=120)
+    np.testing.assert_array_equal(load_bart(path).predict(X, seed=2), predictor.predict(X, seed=2))
+
+
+def test_independent_models(trained, tmp_path):
+    save_bart(trained[0], tmp_path/'a')
+    a = load_bart(tmp_path/'a')
+    reference = a.predict(trained[1], seed=1)
+    with pm.Model():
+        # Creating another BART RV must not replace a loaded predictor's trees.
+        pmb.BART('other', np.zeros((3, 2)), np.ones(3), m=2)
+    b = load_bart(tmp_path/'a')
+    assert a._trees is not b._trees
+    np.testing.assert_array_equal(a.predict(trained[1], seed=1), reference)

@@ -48,3 +48,19 @@ class BARTPredictor:
         result = _sample_posterior(self._trees, np.ascontiguousarray(X),
                                    np.random.default_rng(seed), size=draws)
         return result[:, :, 0]
+
+
+def load_bart(path):
+    """Load a trusted artifact; check exact dependency versions before unpickling.
+
+    Pickle can execute code. The header/version check is not a security boundary.
+    No training, trace, original data, model construction or compilation is needed.
+    """
+    with Path(path).open("rb") as stream:
+        header = json.loads(stream.readline())
+        if header["format"] != "bart-persistence/1":
+            raise ValueError("Unsupported BART artifact format")
+        if header["versions"] != _versions():
+            raise ValueError("Dependency versions differ; use the training environment's exact lock")
+        state = pickle.load(stream)
+    return BARTPredictor(state, header["n_features"], header["versions"]["pymc-bart"])
