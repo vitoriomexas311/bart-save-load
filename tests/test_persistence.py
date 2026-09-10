@@ -91,3 +91,27 @@ def test_construct_predictor(predictor):
 def test_empty_legacy_artifact():
     with pytest.raises(ValueError, match='no posterior draws'):
         BARTPredictor({'trees': []}, 2, '0.11.0')
+
+
+def test_predict_matches_live_trees(trained, predictor):
+    rv, _ = trained
+    from pymc_bart.utils import _sample_posterior
+    if md.version('pymc-bart') == '0.13.1':
+        from pymc_bart.utils import _get_posterior_sampler
+        original = _get_posterior_sampler(rv.owner.op)
+    else:
+        original = list(rv.owner.op.all_trees)
+    for n in [1, 7, 24, 31]:
+        new = np.random.default_rng(n).normal(size=(n, 2))
+        expected = _sample_posterior(original, new, np.random.default_rng(10), size=100)[:, :, 0]
+        np.testing.assert_array_equal(predictor.predict(new, draws=100, seed=10), expected)
+
+
+def test_invalid_prediction_inputs(predictor):
+    p = predictor
+    for X in [[], [1, 2], np.zeros((2, 3)), np.zeros((0, 2)), [[np.nan, 0]], [[np.inf, 0]]]:
+        with pytest.raises(ValueError):
+            p.predict(X)
+    for draws in [0, -1, 1.5, True]:
+        with pytest.raises(ValueError, match='positive integer'):
+            p.predict([[1, 2]], draws=draws)
