@@ -1,0 +1,12 @@
+.venv*/
+__pycache__/
+*.log
+artifacts/
+logs/
+*.zip
+.test-artifacts/
+.pytest_cache/
+.DS_Store
+.pytensor-cache/
+/matrix.json
+/verification-summary.json
