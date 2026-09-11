@@ -70,8 +70,7 @@ testing sequential two-chain sampling retained only the last chain’s tree hist
 in the upstream variable, despite two chains in the trace. The saver can only
 persist histories that BART retains.
 
-Save only after sampling finishes,
-while the trained BART variable still exists. Pass the BART random variable itself,
+Save only after sampling finishes, while the trained BART variable still exists. Pass the BART random variable itself,
 not `trace`, the model, or a deterministic inverse-link expression.
 
 `save_bart(rv, path, *, expected_draws=None)` returns `None`.
@@ -79,8 +78,9 @@ When supplied, `expected_draws` must be a positive Python integer matching the
 number of retained ensembles. Use the trace chain count times draw count, as above.
 A mismatch raises `ValueError` before writing; this catches missing upstream
 histories rather than silently saving an incomplete fit. If omitted, all available
-histories are saved without comparing them to a trace. The parent directory must exist. Existing
-files raise `FileExistsError` instead of being overwritten; use a new versioned
+histories are saved without comparing them to a trace.
+
+The parent directory must exist. Existing files raise `FileExistsError` instead of being overwritten; use a new versioned
 filename for each fit. Serialization completes in memory before opening the file.
 The file is staged in a temporary directory beside the destination, flushed with
 `fsync`, then published with an exclusive hard link. Readers see a complete artifact
@@ -135,7 +135,7 @@ explain the background.
 
 One `.bart` file contains:
 
-1. A UTF-8 JSON line with format ID `bart-persistence/1`, exact dependency versions
+1. A UTF-8 JSON line with format ID `bart-persistence/1`, exact dependency versions,
    feature count and a SHA-256 payload digest.
 2. A protocol-5 pickle payload with the complete retained tree collection and tree
    count `m`. BART 0.11 stores posterior forests. BART 0.13.1 stores compressed
@@ -144,8 +144,7 @@ One `.bart` file contains:
 The saver turns the process-backed tree collection into a normal list; it does
 not pickle the multiprocessing manager, PyMC model, trace or training matrix.
 The loader checks versions and verifies the payload digest before unpickling,
-then constructs an independent
-`BARTPredictor`. It does not modify global BART state or rely on an operator-ID cache.
+then constructs an independent `BARTPredictor`. It does not modify global BART state or rely on an operator-ID cache.
 It uses version-specific private upstream prediction APIs, which is why compatibility
 is deliberately narrow. Old artifacts produced by the previous demo scripts are
 not this format; save again from a live fitted variable using this API.
