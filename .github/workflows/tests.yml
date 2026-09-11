@@ -1,6 +1,11 @@
 name: BART save and load
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
 
 permissions:
   contents: read
@@ -11,18 +16,20 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.stack }} / Python ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.id }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {stack: legacy, python: '3.11'}
-          - {stack: current, python: '3.13'}
+          - {id: legacy-linux, stack: legacy, python: '3.11', os: ubuntu-latest}
+          - {id: current-py312, stack: current, python: '3.12', os: ubuntu-latest}
+          - {id: current-linux, stack: current, python: '3.13', os: ubuntu-latest}
+          - {id: current-macos, stack: current, python: '3.13', os: macos-14}
+          - {id: current-windows, stack: current, python: '3.13', os: windows-latest}
     env:
-      COVERAGE_FILE: .coverage.${{ matrix.stack }}
-      PYTENSOR_FLAGS: base_compiledir=/tmp/pytensor-${{ matrix.stack }}
+      COVERAGE_FILE: .coverage.${{ matrix.id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -30,6 +37,14 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Isolate the compiler cache on each platform
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          cache = Path(os.environ['RUNNER_TEMP']) / 'pytensor'
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'PYTENSOR_FLAGS=base_compiledir={cache}\n')
       - name: Install the supported stack and development tools
         run: python -m pip install -e '.[${{ matrix.stack }},test,notebook]'
       - name: Check dependency consistency
@@ -39,11 +54,12 @@ jobs:
       - name: Save coverage for the combined gate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-${{ matrix.stack }}
-          path: .coverage.${{ matrix.stack }}
+          name: coverage-${{ matrix.id }}
+          path: .coverage.${{ matrix.id }}
           include-hidden-files: true
           if-no-files-found: error
       - name: Build and install the wheel instead of the editable package
+        shell: bash
         run: |
           python -m build
           python -m pip install --force-reinstall --no-deps dist/*.whl
@@ -70,10 +86,27 @@ jobs:
                   str(notebook), '--ExecutePreprocessor.kernel_name=bart-persistence',
                   '--ExecutePreprocessor.timeout=300', '--output-dir', str(root / 'artifacts'),
               ], cwd=work, check=True, timeout=600)
+      - name: Record tested dependencies and artifact digests
+        shell: python
+        run: |
+          import hashlib
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          dist = Path('dist')
+          with (dist / 'tested-requirements.txt').open('w') as output:
+              subprocess.run([sys.executable, '-m', 'pip', 'freeze', '--exclude',
+                              'bart-persistence'], stdout=output, check=True)
+          files = sorted(path for path in dist.iterdir() if path.name != 'SHA256SUMS')
+          (dist / 'SHA256SUMS').write_text(''.join(
+              f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n'
+              for path in files
+          ))
       - name: Preserve the executed walkthrough and installable wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: package-${{ matrix.stack }}
+          name: package-${{ matrix.id }}
           path: |
             artifacts/*.ipynb
             dist/*
