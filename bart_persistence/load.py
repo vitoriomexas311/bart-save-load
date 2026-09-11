@@ -1,5 +1,6 @@
 """Load trees once and pass a standalone predictor between application functions."""
 
+import hashlib
 import json
 from pathlib import Path
 import pickle
@@ -62,5 +63,9 @@ def load_bart(path):
             raise ValueError("Unsupported BART artifact format")
         if header["versions"] != _versions():
             raise ValueError("Dependency versions differ; use the training environment's exact lock")
-        state = pickle.load(stream)
+        payload = stream.read()
+        digest = header.get("sha256")
+        if digest is not None and hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError("BART artifact checksum mismatch; restore an intact copy")
+        state = pickle.loads(payload)
     return BARTPredictor(state, header["n_features"], header["versions"]["pymc-bart"])
