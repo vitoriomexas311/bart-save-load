@@ -1,3 +1,4 @@
+import hashlib
 import importlib.metadata as md
 import json
 import pickle
@@ -45,7 +46,8 @@ def test_save_bart_records_state_without_overwriting(trained, tmp_path):
     contents = path.read_bytes()
     header_bytes, payload = contents.split(b'\n', 1)
     header, state = json.loads(header_bytes), pickle.loads(payload)
-    assert header == {'format': 'bart-persistence/1', 'versions': _versions(), 'n_features': 2}
+    assert header == {'format': 'bart-persistence/1', 'versions': _versions(), 'n_features': 2,
+                      'sha256': hashlib.sha256(payload).hexdigest()}
     assert state['m'] == rv.owner.op.m
     assert len(state['trees']) == len(rv.owner.op.all_trees)
     if md.version('pymc-bart') == '0.13.1':

@@ -1,5 +1,6 @@
 """Save scalar PyMC BART posterior trees to one trusted-local artifact."""
 
+import hashlib
 import importlib.metadata as md
 import json
 import os
@@ -47,6 +48,7 @@ def save_bart(rv, path):
               "n_features": int(op.X.eval().shape[1])}
     # Serialize before opening so serialization errors cannot leave a partial file.
     payload = pickle.dumps(state, protocol=5)
+    header["sha256"] = hashlib.sha256(payload).hexdigest()
     path = Path(path)
     # A same-filesystem hard link publishes the complete file without replacing
     # an existing destination. Failures leave the destination untouched.
