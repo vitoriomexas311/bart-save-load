@@ -63,7 +63,7 @@ def test_untrained_and_wrong_variable(tmp_path):
         rv = pmb.BART('mu', np.zeros((3, 2)), np.ones(3), m=2)
         multi = pmb.BART('multi', np.zeros((3, 2)), np.ones(3), m=2, shape=(2, 3))
         normal = pm.Normal('normal')
-    for wrong in [pt.vector(), normal]:
+    for wrong in [pt.vector(), normal, None, object()]:
         with pytest.raises(TypeError, match='BART random variable'):
             save_bart(wrong, tmp_path/'no')
     with pytest.raises(ValueError, match='scalar-output'):
@@ -200,4 +200,17 @@ def test_original_format_without_checksum_remains_readable(trained, tmp_path):
     header = json.loads(header)
     del header["sha256"]
     path.write_bytes(json.dumps(header).encode() + b"\n" + payload)
+    assert load_bart(path).n_draws == 12
+
+
+@pytest.mark.parametrize("expected", [0, -1, True, 1.5, 11])
+def test_save_rejects_invalid_or_missing_draw_counts(trained, tmp_path, expected):
+    with pytest.raises(ValueError, match="positive integer|retained 12 draws; expected 11"):
+        save_bart(trained[0], tmp_path / "model.bart", expected_draws=expected)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_save_accepts_the_trace_draw_count(trained, tmp_path):
+    path = tmp_path / "model.bart"
+    save_bart(trained[0], path, expected_draws=12)
     assert load_bart(path).n_draws == 12
