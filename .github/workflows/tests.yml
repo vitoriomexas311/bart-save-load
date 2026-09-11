@@ -46,7 +46,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write(f'PYTENSOR_FLAGS=base_compiledir={cache}\n')
       - name: Install the supported stack and development tools
-        run: python -m pip install -e '.[${{ matrix.stack }},test,notebook]'
+        run: python -m pip install -e '.[${{ matrix.stack }},test]' nbconvert ipykernel
       - name: Check dependency consistency
         run: python -m pip check
       - name: Test persistence and measure statement and branch coverage
