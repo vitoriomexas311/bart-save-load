@@ -1,0 +1,3 @@
+include bart_persistence_walkthrough.ipynb
+include CONTRIBUTING.md SECURITY.md CHANGELOG.md
+recursive-include docs *.md
